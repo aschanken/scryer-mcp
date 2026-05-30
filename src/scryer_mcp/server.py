@@ -9,7 +9,7 @@ Tools:
 """
 from __future__ import annotations
 
-import traceback
+import os
 from mcp.server.fastmcp import FastMCP
 from .schema import (
     ScryerRequest, ScryerResponse, Tier, Category,
@@ -18,6 +18,7 @@ from .schema import (
 from .search import ddg_search
 from .fetch import fetch_urls
 from .tiers import execute_tier, llm_client
+from .cache import prune as cache_prune
 from . import __version__
 
 mcp = FastMCP("scryer")
@@ -70,7 +71,7 @@ async def scryer_search(
         response = await execute_tier(request)
         return response.model_dump()
     except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
+        return {"error": str(e)}
 
 
 @mcp.tool()
@@ -93,12 +94,18 @@ async def scryer_fetch_content(
         return {"error": f"Invalid mode: '{mode}'. Use 'highlights' or 'full_text'."}
 
     try:
-        results = await fetch_urls(urls[:15], mode, timeout_ms)
-        return {
+        cap = 15
+        truncated = len(urls) > cap
+        results = await fetch_urls(urls[:cap], mode, timeout_ms)
+        out = {
             "results": results,
             "fetched": len([r for r in results if not r.get("error")]),
             "failed": len([r for r in results if r.get("error")]),
         }
+        if truncated:
+            out["truncated"] = True
+            out["original_count"] = len(urls)
+        return out
     except Exception as e:
         return {"error": str(e)}
 
@@ -124,7 +131,9 @@ async def scryer_extract_structured(
     if err:
         return {"error": f"Invalid schema: {err}"}
 
-    results = await fetch_urls(urls[:10], mode, 10000)
+    cap = 10
+    truncated = len(urls) > cap
+    results = await fetch_urls(urls[:cap], mode, 10000)
 
     extractions = []
     errors = 0
@@ -143,12 +152,16 @@ async def scryer_extract_structured(
     from .extract import merge_extractions
     merged = merge_extractions(extractions, schema)
 
-    return {
+    out = {
         "items": [merged] if merged else [],
         "schema_used": schema,
         "extraction_errors": errors,
         "pages_processed": len([r for r in results if not r.get("error")]),
     }
+    if truncated:
+        out["truncated"] = True
+        out["original_count"] = len(urls)
+    return out
 
 
 @mcp.tool()
@@ -213,10 +226,8 @@ async def scryer_health() -> dict:
     # Cache directory
     try:
         DEFAULT_ROOT.mkdir(parents=True, exist_ok=True)
-        test_file = DEFAULT_ROOT / ".health_check"
-        test_file.write_text("ok")
-        test_file.unlink()
-        status["checks"]["cache"] = {"ok": True, "detail": str(DEFAULT_ROOT)}
+        ok = os.access(str(DEFAULT_ROOT), os.W_OK)
+        status["checks"]["cache"] = {"ok": ok, "detail": str(DEFAULT_ROOT)}
     except Exception as e:
         status["checks"]["cache"] = {"ok": False, "detail": str(e)}
         status["all_ok"] = False
@@ -226,6 +237,11 @@ async def scryer_health() -> dict:
 
 def main():
     """Entry point for stdio transport."""
+    # Prune stale cache entries on startup (don't block on failure)
+    try:
+        cache_prune("fetch", 86400)
+    except Exception:
+        pass
     mcp.run(transport="stdio")
 
 

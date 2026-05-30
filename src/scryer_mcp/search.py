@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import random
-from duckduckgo_search import DDGS
+import warnings
+from ddgs import DDGS
 
 
 def _augment_query(query: str, category: str | None) -> str:
@@ -65,7 +66,8 @@ async def ddg_search(
                     delay = (2 ** attempt) + random.uniform(0, 1)
                     await asyncio.sleep(delay)
                     continue
-            # Non-retryable error or max retries exhausted — return empty
+                # Rate-limit retries exhausted — surface it
+                warnings.warn(f"DDG rate limit exceeded after {max_retries} attempts")
             return []
 
     return []

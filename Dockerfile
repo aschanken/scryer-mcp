@@ -3,12 +3,13 @@ FROM python:3.12-slim
 
 RUN pip install --no-cache-dir \
     mcp \
-    duckduckgo-search \
+    ddgs \
     httpx \
     trafilatura \
     beautifulsoup4 \
     lxml \
-    pydantic
+    pydantic \
+    jsonschema
 
 COPY src/ /app/src/
 COPY pyproject.toml /app/

@@ -10,9 +10,16 @@ from .schema import (
 from .search import ddg_search
 from .fetch import fetch_urls
 from .cache import get as cache_get, put as cache_put, ttl as cache_ttl
-from .llm_client import LLMClient
+from .llm_client import LLMClient, _extract_json
 
 llm_client = LLMClient()
+
+
+def _estimate_tokens(text: str | None) -> int:
+    """Rough token estimate (~4 chars per token)."""
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
 
 
 async def execute_tier(request: ScryerRequest) -> ScryerResponse:
@@ -80,18 +87,25 @@ async def _fast(req: ScryerRequest) -> ScryerResponse:
     cached = []
     import json as _json
     for r in results[:fetch_count]:
-        if req.livecrawl is False or not cache_ttl("fetch", r["url"], 86400):
+        if req.livecrawl and not cache_ttl("fetch", r["url"], 86400):
             to_fetch.append(r)
         else:
             entry = cache_get("fetch", r["url"])
             if entry:
-                cached.append(_json.loads(entry))
+                data = _json.loads(entry)
+                cached.append(SearchResult(
+                    title=data.get("title") or r.get("title", ""),
+                    url=data.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    highlights=data.get("content"),
+                ))
                 trace.urls_skipped_cache += 1
-            else:
+            elif req.livecrawl:
                 to_fetch.append(r)
 
-    if to_fetch and req.highlights:
-        fetched = await fetch_urls([r["url"] for r in to_fetch], "highlights", 8000)
+    if to_fetch and (req.highlights or req.full_text) and req.livecrawl:
+        mode = "full_text" if req.full_text else "highlights"
+        fetched = await fetch_urls([r["url"] for r in to_fetch], mode, 8000)
         trace.urls_fetched = len(to_fetch)
         fetched_map = {}
         for f in fetched:
@@ -113,7 +127,7 @@ async def _fast(req: ScryerRequest) -> ScryerResponse:
     if not valid:
         return await _instant(req)
 
-    trace.tokens_consumed = len(valid) * 300
+    trace.tokens_consumed = sum(_estimate_tokens(r.highlights) + _estimate_tokens(r.snippet) for r in valid)
     return ScryerResponse(
         results=valid[:req.num_results], search_time_ms=0,
         tier_used="fast", trace=trace,
@@ -144,7 +158,7 @@ async def _auto(req: ScryerRequest) -> ScryerResponse:
     fast_resp.citations = synthesis.get("citations", [])
     fast_resp.trace.tier = "auto"
     fast_resp.tier_used = "auto"
-    fast_resp.trace.tokens_consumed += 2000
+    fast_resp.trace.tokens_consumed += _estimate_tokens(fast_resp.grounded_answer) + 500
     return fast_resp
 
 
@@ -154,6 +168,7 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
     auto_resp = await _auto(req)
 
     # Second pass: gap-filling search
+    gaps = []
     if auto_resp.grounded_answer:
         gaps = await _identify_gaps(req.query, auto_resp)
         if gaps:
@@ -165,6 +180,9 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
                     )
                     for f in fetched:
                         if not f["error"] and f.get("content"):
+                            # Deduplicate against existing results
+                            if any(r.url == f["url"] for r in auto_resp.results):
+                                continue
                             auto_resp.results.append(SearchResult(
                                 title=f.get("title") or f["url"],
                                 url=f["url"],
@@ -186,7 +204,7 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
     auto_resp.trace.tier = "deep"
     auto_resp.tier_used = "deep"
     auto_resp.trace.searches_performed += len(gaps) if gaps else 0
-    auto_resp.trace.tokens_consumed += 4000
+    auto_resp.trace.tokens_consumed += _estimate_tokens(auto_resp.grounded_answer) + 1000
     return auto_resp
 
 
@@ -209,34 +227,12 @@ async def _identify_gaps(query: str, response: ScryerResponse) -> list[str]:
         return []
     try:
         import json as _json
-        parsed = _json.loads(_extract_json_from_llm(result))
+        parsed = _json.loads(_extract_json(result))
         if isinstance(parsed, list):
             return parsed[:3]
     except Exception:
         pass
     return []
-
-
-def _extract_json_from_llm(text: str) -> str:
-    """Extract the first complete JSON array or object from LLM output."""
-    for brace in ["[", "{"]:
-        start = text.find(brace)
-        if start != -1:
-            break
-    if start == -1:
-        return text
-    stack = []
-    for i in range(start, len(text)):
-        ch = text[i]
-        if ch in "[{":
-            stack.append(ch)
-        elif ch in "]}":
-            if not stack:
-                break
-            stack.pop()
-            if not stack:
-                return text[start:i + 1]
-    return text
 
 
 # === deep-reasoning ===
@@ -272,7 +268,10 @@ async def _deep_reasoning(req: ScryerRequest) -> ScryerResponse:
             verify(name, f"{prompt}\n\nQuery: {req.query}\n\nAnswer:\n{deep_resp.grounded_answer}")
             for name, prompt in lenses
         ])
-        deep_resp.trace.tokens_consumed += 3000
+        cot_tokens = _estimate_tokens(cot)
+        deep_resp.trace.tokens_consumed += cot_tokens + 1500
+        deep_resp.cot = cot
+        deep_resp.verifications = [v for v in verdicts if v]
 
     deep_resp.trace.tier = "deep-reasoning"
     deep_resp.tier_used = "deep-reasoning"

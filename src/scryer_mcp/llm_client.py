@@ -1,9 +1,11 @@
 """Async DeepSeek API client for synthesis and structured extraction."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import httpx
+import warnings
 
 
 class LLMClient:
@@ -15,20 +17,31 @@ class LLMClient:
 
     def __init__(self, endpoint: str | None = None, model: str | None = None,
                  api_key: str | None = None):
-        self.endpoint = endpoint or os.getenv(
-            "LLM_ENDPOINT",
-            "http://localhost:8734/v1/chat/completions",
-        )
+        self.endpoint = endpoint or os.getenv("LLM_ENDPOINT") or "http://localhost:8734/v1/chat/completions"
         self.model = model or os.getenv("SCRYER_LLM_MODEL", "deepseek-v4-flash")
         self.api_key = api_key or os.getenv("SCRYER_API_KEY")
         self._client: httpx.AsyncClient | None = None
+        self._client_lock: asyncio.Lock | None = None
+        if self.api_key:
+            parsed = httpx.URL(self.endpoint)
+            is_local = parsed.host in ("localhost", "127.0.0.1", "0.0.0.0")
+            if parsed.scheme == "http" and not is_local:
+                warnings.warn(
+                    f"API key will be transmitted in cleartext to {parsed.host} "
+                    f"via HTTP. Use HTTPS in production.",
+                    stacklevel=2,
+                )
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            headers = {}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            self._client = httpx.AsyncClient(timeout=60.0, headers=headers)
+            if self._client_lock is None:
+                self._client_lock = asyncio.Lock()
+            async with self._client_lock:
+                if self._client is None:  # Double-check after acquiring lock
+                    headers = {}
+                    if self.api_key:
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+                    self._client = httpx.AsyncClient(timeout=60.0, headers=headers)
         return self._client
 
     async def is_available(self) -> bool:
@@ -95,7 +108,14 @@ class LLMClient:
             return {"error": "LLM synthesis failed — no response"}
 
         try:
-            return json.loads(_extract_json(text))
+            parsed = json.loads(_extract_json(text))
+            if isinstance(parsed, dict):
+                citations = parsed.get("citations", [])
+                result_urls = [r.get("url", "") for r in results]
+                valid = [c for c in citations if any(c in u for u in result_urls)]
+                parsed["citations"] = valid
+                parsed["_hallucinated_citations"] = len(citations) - len(valid)
+            return parsed
         except Exception:
             return {"error": "LLM synthesis returned unparseable output"}
 
@@ -111,14 +131,28 @@ class LLMClient:
             "found, use null. Do NOT hallucinate values. Return ONLY a JSON object "
             "conforming exactly to the schema."
         )
+        truncated = len(content) > 8000
         user = f"Schema: {schema_json}\n\nContent:\n{content[:8000]}"
+        if truncated:
+            user += "\n\n[Note: Content was truncated to 8000 characters.]"
 
         text = await self._chat(system, user, temperature=0.0, max_tokens=2000)
         if not text:
             return {"error": "LLM extraction failed — no response"}
 
         try:
-            return json.loads(_extract_json(text))
+            import jsonschema as _js
+            parsed = json.loads(_extract_json(text))
+            _js.validate(instance=parsed, schema=schema)
+            return parsed
+        except _js.ValidationError as e:
+            return {"error": f"LLM extraction did not conform to schema: {e.message}"}
+        except ImportError:
+            warnings.warn("jsonschema not installed; extraction output not validated")
+            try:
+                return json.loads(_extract_json(text))
+            except Exception:
+                return {"error": "LLM extraction returned unparseable output"}
         except Exception:
             return {"error": "LLM extraction returned unparseable output"}
 
@@ -158,14 +192,24 @@ def _format_results(results: list[dict]) -> str:
 
 
 def _extract_json(text: str) -> str:
-    """Extract the first complete JSON object from text."""
-    start = text.find("{")
+    """Extract the first complete JSON object or array from text.
+
+    Handles embedded braces/brackets inside string values.
+    Finds whichever brace ({ or [) appears first.
+    """
+    start = -1
+    close_char = None
+    for brace, close in [("{", "}"), ("[", "]")]:
+        pos = text.find(brace)
+        if pos != -1 and (start == -1 or pos < start):
+            start = pos
+            close_char = close
     if start == -1:
         return text
-    depth = 0
     in_string = False
     escape = False
-    for i in range(start, len(text)):
+    depth = 1
+    for i in range(start + 1, len(text)):
         ch = text[i]
         if escape:
             escape = False
@@ -178,9 +222,9 @@ def _extract_json(text: str) -> str:
             continue
         if in_string:
             continue
-        if ch == "{":
+        if ch in "[{":
             depth += 1
-        elif ch == "}":
+        elif ch == close_char:
             depth -= 1
             if depth == 0:
                 return text[start:i + 1]

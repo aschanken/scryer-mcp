@@ -121,14 +121,17 @@ async def fetch_urls(
     """
     sem = asyncio.Semaphore(max_concurrent)
     timeout_s = timeout_ms / 1000.0
+    limits = httpx.Limits(max_connections=max_concurrent, max_keepalive_connections=5)
 
-    async def fetch_with_sem(url: str) -> dict:
+    async def fetch_with_sem(client: httpx.AsyncClient, url: str) -> dict:
         async with sem:
-            async with httpx.AsyncClient(timeout=timeout_s) as client:
-                return await fetch_url(url, client, mode)
+            return await fetch_url(url, client, mode)
 
-    tasks = [fetch_with_sem(u) for u in urls[:15]]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    async with httpx.AsyncClient(
+        timeout=timeout_s, limits=limits, follow_redirects=True
+    ) as client:
+        tasks = [fetch_with_sem(client, u) for u in urls[:15]]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
     out = []
     for url, result in zip(urls[:15], results):

@@ -34,3 +34,16 @@ class TestScryerSearch:
         result = await scryer_search(query="test", tier="super_duper_slow")
         assert "error" in result
         assert "Invalid tier" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_error_response_no_traceback(self, monkeypatch):
+        from scryer_mcp.server import scryer_search
+        from scryer_mcp import tiers
+
+        async def failing_execute(*args):
+            raise ValueError("Something broke internally")
+        monkeypatch.setattr(tiers, "execute_tier", failing_execute)
+
+        result = await scryer_search(query="test")
+        assert "error" in result
+        assert "traceback" not in result, "Traceback must not leak in error response"

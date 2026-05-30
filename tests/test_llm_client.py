@@ -94,3 +94,165 @@ class TestLLMClientAuth:
         client = LLMClient()
         c = await client._get_client()
         assert "Authorization" not in c.headers
+
+
+class TestExtractJSONExtended:
+    """Tests for _extract_json with arrays and embedded braces (C7)."""
+
+    def test_embedded_braces_in_string(self):
+        text = '{"key": "text with { and } braces", "nested": {"inner": "value"}}'
+        assert _extract_json(text) == text
+
+    def test_json_array(self):
+        text = 'prefix ["query1", "query2 with [bracket]"] suffix'
+        assert _extract_json(text) == '["query1", "query2 with [bracket]"]'
+
+    def test_finds_array_when_first(self):
+        text = '["a", "b"] and more {"key": "val"}'
+        assert _extract_json(text) == '["a", "b"]'
+
+    def test_finds_object_when_first(self):
+        text = '{"key": "val"} and more ["a", "b"]'
+        assert _extract_json(text) == '{"key": "val"}'
+
+
+class TestSynthesizeCitationFiltering:
+    """Tests for citation hallucination validation (C3)."""
+
+    @pytest.mark.asyncio
+    async def test_hallucinated_citations_filtered(self, monkeypatch):
+        from scryer_mcp.llm_client import LLMClient
+
+        async def mock_available(self):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        # Note: _chat is patched on the class, so mock must accept self
+        async def mock_chat(self, system, user, temperature=0.3, max_tokens=2000):
+            return (
+                '{"grounded_answer": "Some answer.", '
+                '"citations": ["https://example.com/1", "https://madeup.com/fake"]}'
+            )
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        results = [{"url": "https://example.com/1", "title": "Real Result", "snippet": "Real"}]
+        result = await client.synthesize("test query", results)
+        assert "https://example.com/1" in result["citations"]
+        assert "https://madeup.com/fake" not in result["citations"]
+        assert result.get("_hallucinated_citations") == 1
+
+    @pytest.mark.asyncio
+    async def test_all_valid_citations_preserved(self, monkeypatch):
+        from scryer_mcp.llm_client import LLMClient
+
+        async def mock_available(self):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        async def mock_chat(self, system, user, temperature=0.3, max_tokens=2000):
+            return (
+                '{"grounded_answer": "Valid answer.", '
+                '"citations": ["https://example.com/1", "https://example.com/2"]}'
+            )
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        results = [
+            {"url": "https://example.com/1", "title": "R1", "snippet": "S1"},
+            {"url": "https://example.com/2", "title": "R2", "snippet": "S2"},
+        ]
+        result = await client.synthesize("query", results)
+        assert len(result["citations"]) == 2
+        assert result.get("_hallucinated_citations") == 0
+
+    @pytest.mark.asyncio
+    async def test_no_citations_handled(self, monkeypatch):
+        from scryer_mcp.llm_client import LLMClient
+
+        async def mock_available(self):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        async def mock_chat(self, system, user, temperature=0.3, max_tokens=2000):
+            return '{"grounded_answer": "No citations."}'
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        result = await client.synthesize("query", [])
+        assert result.get("_hallucinated_citations", 0) == 0
+
+
+class TestExtractStructuredValidation:
+    """Tests for schema validation in extract_structured (C4)."""
+
+    @pytest.mark.asyncio
+    async def test_schema_validation_rejects_bad_output(self, monkeypatch):
+        from scryer_mcp.llm_client import LLMClient
+
+        async def mock_available(self):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        async def mock_chat(self, system, user, temperature=0.0, max_tokens=2000):
+            return '{"age": "not-a-number"}'
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        schema = {"type": "object", "properties": {"age": {"type": "integer"}}, "required": ["age"]}
+        result = await client.extract_structured("Some content", schema)
+        assert "error" in result
+        assert "schema" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_schema_validation_accepts_good_output(self, monkeypatch):
+        from scryer_mcp.llm_client import LLMClient
+
+        async def mock_available(self):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        async def mock_chat(self, system, user, temperature=0.0, max_tokens=2000):
+            return '{"name": "Alice", "age": 30}'
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        schema = {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}, "required": ["name", "age"]}
+        result = await client.extract_structured("Content about Alice", schema)
+        assert "error" not in result
+        assert result["name"] == "Alice"
+        assert result["age"] == 30
+
+
+class TestLLMClientCleartextWarning:
+    """Tests for cleartext API key warnings (C8)."""
+
+    def test_warning_on_http_non_localhost(self, monkeypatch):
+        import warnings
+        from scryer_mcp.llm_client import LLMClient
+
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            LLMClient(endpoint="http://api.example.com/v1/chat/completions", api_key="sk-test")
+            assert any("cleartext" in str(x.message).lower() for x in w)
+
+    def test_no_warning_on_https(self, monkeypatch):
+        import warnings
+        from scryer_mcp.llm_client import LLMClient
+
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            LLMClient(endpoint="https://api.example.com/v1/chat/completions", api_key="sk-test")
+            assert not any("cleartext" in str(x.message).lower() for x in w)
+
+    def test_no_warning_on_localhost_http(self, monkeypatch):
+        import warnings
+        from scryer_mcp.llm_client import LLMClient
+
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            LLMClient(endpoint="http://localhost:8734/v1/chat/completions", api_key="sk-test")
+            assert not any("cleartext" in str(x.message).lower() for x in w)

@@ -243,14 +243,13 @@ docker run --rm scryer-mcp
 ```
 src/scryer_mcp/
 ├── __init__.py          Package metadata
-├── server.py            FastMCP entry point, 5 tool definitions (230 lines)
-├── tiers.py             Tier dispatch: instant → fast → auto → deep → deep-reasoning (279 lines)
-├── search.py            DDG search adapter with jittered 429 retry (71 lines)
-├── fetch.py             HTTP fetch + trafilatura extraction + bs4 fallback (149 lines)
-├── llm_client.py        Async LLM client, optional synthesis/extraction (182 lines)
-├── cache.py             Filesystem cache with lazy TTL enforcement (79 lines)
+├── server.py            FastMCP entry point, 5 tool definitions
+├── tiers.py             Tier dispatch: instant → fast → auto → deep → deep-reasoning
+├── search.py            DDG search adapter with jittered 429 retry
+├── fetch.py             HTTP fetch + trafilatura extraction + bs4 fallback
+├── llm_client.py        Async LLM client, optional synthesis/extraction
+├── cache.py             Filesystem cache with lazy TTL enforcement
 ├── schema.py            Pydantic v2 request/response models
-├── noise_strip.py       HTML/markdown boilerplate removal
 └── extract.py           Structured data merge/dedup
 ```
 
@@ -288,7 +287,7 @@ python -m pytest tests/ -v
 ```
 scryer-mcp/
 ├── src/scryer_mcp/          # Source code
-├── tests/                    # Tests (34 unit + 4 integration)
+├── tests/                    # Tests (59 unit + 4 integration)
 ├── Dockerfile                # OCI image
 ├── catalog.yaml              # Docker MCP toolkit catalog entry
 ├── pyproject.toml            # Package metadata

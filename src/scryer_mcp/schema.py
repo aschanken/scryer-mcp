@@ -75,6 +75,8 @@ class ScryerResponse(BaseModel):
     structured_data: Optional[StructuredData] = None
     grounded_answer: Optional[str] = None
     citations: list[str] = Field(default_factory=list)
+    cot: Optional[str] = None
+    verifications: Optional[list[dict]] = None
     error: Optional[str] = None                  # Non-empty only on partial failure
 
 

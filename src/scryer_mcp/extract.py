@@ -11,18 +11,7 @@ import json
 import sys
 from typing import Any, Optional
 
-
-def validate_extraction_schema(schema: dict) -> Optional[str]:
-    """Validate a JSON Schema. Returns None if valid, error string if not."""
-    try:
-        import jsonschema
-        jsonschema.Draft7Validator.check_schema(schema)
-        return None
-    except ImportError:
-        return "jsonschema library not available — install with: pip install jsonschema"
-    except Exception as e:
-        return str(e)
-
+from .schema import validate_extraction_schema
 
 def merge_extractions(
     extractions: list[dict[str, Any]],
