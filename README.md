@@ -234,7 +234,7 @@ docker run --rm -e LLM_ENDPOINT=http://host:8734/v1/chat/completions scryer-mcp
 docker run --rm scryer-mcp
 ```
 
-**Security:** The Docker image contains no API keys, no secrets, and no credentials. The `LLM_ENDPOINT` is empty by default — set it at runtime only if you need synthesis/extraction.
+**Security:** The Docker image contains no API keys, no secrets, and no credentials. The `LLM_ENDPOINT` defaults to `localhost:8734` — set it at runtime only if you need synthesis/extraction. An API key can be injected via `SCRYER_API_KEY` (Docker secrets or env var). When set, a runtime warning is emitted if the endpoint uses HTTP to a non-local address.
 
 ---
 
@@ -302,6 +302,44 @@ scryer-mcp/
 - **No hardcoded endpoints.** The LLM endpoint is configured at runtime via `LLM_ENDPOINT`. Default (`localhost:8734`) only applies when explicitly set.
 - **No data leakage.** Outbound HTTP requests go to DuckDuckGo and optionally your LLM endpoint. No telemetry, tracking, or analytics.
 - **Cache is local.** All cached data stays in `SCRYER_CACHE_DIR`. Nothing is sent anywhere.
+
+---
+
+## Changelog
+
+### v0.1.1 (2026-05-30)
+
+**Security fixes:**
+- Full tracebacks no longer leaked in error responses (use `str(e)` only)
+- API key cleartext warning when endpoint is HTTP and remote
+- HTTP response body size limited via `httpx.Limits` (5 MB cap)
+- Connection pooling — single `AsyncClient` per fetch batch instead of per-URL
+
+**Data integrity fixes:**
+- `livecrawl=False` now correctly prevents live HTTP fetches (was inverted)
+- Deep-reasoning adversarial verdicts stored on response (were discarded)
+- LLM citation hallucination guarded — citations cross-checked against source URLs
+- LLM extraction output validated against caller-supplied JSON Schema
+- Naive JSON extractor replaced with robust version (handles arrays, embedded braces)
+- Gap-filling no longer appends duplicate URLs
+- `full_text` parameter actually selects full-text fetch mode
+
+**Quality of life:**
+- URL list truncation signalled via `truncated`/`original_count` fields
+- Content truncation flagged in extraction responses
+- Token counting based on actual content length (chars / 4)
+- Cache pruned on startup (stale entries cleaned)
+- Health check uses `os.access()` instead of file write
+- DDG library updated from deprecated `duckduckgo_search` to `ddgs`
+- `_get_client` race condition guarded with `asyncio.Lock`
+- Dead code removed (`noise_strip.py`)
+- Duplicate `validate_extraction_schema` consolidated
+
+**Tests:** 63 total (59 unit + 4 integration) — 19 new tests covering all fixes.
+
+### v0.1.0 (2026-05-29)
+
+Initial release. 5 MCP tools, 5 quality tiers, DDG search, optional LLM synthesis.
 
 ---
 
