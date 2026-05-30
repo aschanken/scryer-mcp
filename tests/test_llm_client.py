@@ -39,6 +39,11 @@ class TestFormatResults:
 
 
 class TestLLMClient:
+    @pytest.fixture(autouse=True)
+    def _clear_api_key(self, monkeypatch):
+        """Ensure SCRYER_API_KEY is unset for every test in this class."""
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+
     @pytest.mark.asyncio
     async def test_unavailable(self, mock_llm_unavailable):
         client = LLMClient()
@@ -52,3 +57,40 @@ class TestLLMClient:
         results = [{"url": "https://x.com"}, {"url": "https://y.com"}]
         urls = await client.classify_category(results, "news")
         assert urls == ["https://x.com", "https://y.com"]  # all pass through
+
+
+class TestLLMClientAuth:
+    """Tests for API key / Bearer token behavior."""
+
+    def test_api_key_from_kwarg(self):
+        client = LLMClient(api_key="sk-test-key")
+        assert client.api_key == "sk-test-key"
+
+    def test_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("SCRYER_API_KEY", "sk-env-key")
+        client = LLMClient()
+        assert client.api_key == "sk-env-key"
+
+    def test_api_key_none_when_unset(self, monkeypatch):
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        client = LLMClient()
+        assert client.api_key is None
+
+    def test_kwarg_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("SCRYER_API_KEY", "sk-env-key")
+        client = LLMClient(api_key="sk-explicit")
+        assert client.api_key == "sk-explicit"
+
+    @pytest.mark.asyncio
+    async def test_get_client_adds_auth_header(self, monkeypatch):
+        monkeypatch.setenv("SCRYER_API_KEY", "sk-test")
+        client = LLMClient()
+        c = await client._get_client()
+        assert c.headers.get("Authorization") == "Bearer sk-test"
+
+    @pytest.mark.asyncio
+    async def test_get_client_no_auth_header_when_key_unset(self, monkeypatch):
+        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        client = LLMClient()
+        c = await client._get_client()
+        assert "Authorization" not in c.headers

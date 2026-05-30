@@ -27,7 +27,10 @@ registry:
     image: scryer:latest
     ref: ""
     readme: https://github.com/local/scryer-mcp/blob/main/README.md
-    secrets: []
+    secrets:
+      - name: SCRYER_API_KEY
+        description: API key for LLM provider (optional, passed as Bearer token)
+        required: false
     env:
       - name: LLM_ENDPOINT
         value: "http://localhost:8734/v1/chat/completions"
@@ -38,6 +41,9 @@ registry:
       - name: SCRYER_CACHE_DIR
         value: "/root/.cache/scryer-mcp"
         description: Cache directory for search/fetch results
+      - name: SCRYER_API_KEY
+        value: ""
+        description: API key for LLM provider (optional, passed as Bearer token)
     tools:
       - name: scryer_search
         description: Search the web using DuckDuckGo with quality tiers

@@ -18,6 +18,7 @@ RUN pip install -e . --no-deps
 
 ENV LLM_ENDPOINT=""
 ENV SCRYER_LLM_MODEL="deepseek-v4-flash"
+ENV SCRYER_API_KEY=""
 ENV SCRYER_CACHE_DIR="/root/.cache/scryer-mcp"
 
 ENTRYPOINT ["python", "-m", "scryer_mcp.server"]

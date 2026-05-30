@@ -201,9 +201,13 @@ async def scryer_health() -> dict:
 
     # LLM endpoint (optional — doesn't set all_ok=False)
     llm_ok = await llm_client.is_available()
+    detail = "reachable" if llm_ok else "unavailable (synthesis/extraction disabled)"
+    if llm_client.api_key:
+        detail += " [auth: Bearer token configured]"
     status["checks"]["llm_endpoint"] = {
         "ok": llm_ok,
-        "detail": "reachable" if llm_ok else "unavailable (synthesis/extraction disabled)"
+        "detail": detail,
+        "api_key_configured": bool(llm_client.api_key),
     }
 
     # Cache directory

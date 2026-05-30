@@ -13,17 +13,22 @@ class LLMClient:
     if unavailable, synthesis/extraction tools return an error message.
     """
 
-    def __init__(self, endpoint: str | None = None, model: str | None = None):
+    def __init__(self, endpoint: str | None = None, model: str | None = None,
+                 api_key: str | None = None):
         self.endpoint = endpoint or os.getenv(
             "LLM_ENDPOINT",
             "http://localhost:8734/v1/chat/completions",
         )
         self.model = model or os.getenv("SCRYER_LLM_MODEL", "deepseek-v4-flash")
+        self.api_key = api_key or os.getenv("SCRYER_API_KEY")
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=60.0)
+            headers = {}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            self._client = httpx.AsyncClient(timeout=60.0, headers=headers)
         return self._client
 
     async def is_available(self) -> bool:
