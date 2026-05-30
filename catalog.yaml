@@ -1,0 +1,62 @@
+# scryer MCP Server — Catalog Entry
+#
+# A local scryer search MCP server.
+# Uses DuckDuckGo (no API key), trafilatura for content extraction,
+# and an optional LLM backend for synthesis/extraction.
+#
+# To add to your Docker MCP catalog:
+#   docker mcp catalog add my-catalog scryer ./scryer-catalog.yaml
+#
+# To enable:
+#   docker mcp server enable scryer
+#
+# Then use in Claude Code via: /mcp-find exa → /mcp-add scryer
+
+version: 3
+name: scryer
+displayName: Scryer Search
+registry:
+  scryer:
+    description: >-
+      Local scryer search server. Uses DuckDuckGo for web search
+      (no API key required), trafilatura for content extraction, and an
+      optional LLM backend for synthesis and structured data extraction.
+    title: Scryer
+    type: server
+    dateAdded: "2026-05-29T22:00:00Z"
+    image: scryer:latest
+    ref: ""
+    readme: https://github.com/local/scryer-mcp/blob/main/README.md
+    secrets: []
+    env:
+      - name: LLM_ENDPOINT
+        value: "http://localhost:8734/v1/chat/completions"
+        description: LLM API endpoint for synthesis/extraction (optional)
+      - name: SCRYER_LLM_MODEL
+        value: "deepseek-v4-flash"
+        description: Model name for LLM calls
+      - name: SCRYER_CACHE_DIR
+        value: "/root/.cache/scryer-mcp"
+        description: Cache directory for search/fetch results
+    tools:
+      - name: scryer_search
+        description: Search the web using DuckDuckGo with quality tiers
+      - name: scryer_fetch_content
+        description: Fetch and extract clean content from URLs
+      - name: scryer_extract_structured
+        description: Extract structured data from URLs per JSON Schema
+      - name: scryer_synthesize
+        description: Synthesize grounded, cited answers from search results
+      - name: scryer_health
+        description: Check connectivity of all backend dependencies
+    prompts: 0
+    resources: {}
+    metadata:
+      category: search
+      tags:
+        - scryer
+        - search
+        - local
+        - duckduckgo
+      license: MIT License
+      owner: local
