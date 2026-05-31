@@ -1,11 +1,11 @@
 # scryer-mcp — Local Search MCP Server
 
-*Scryer gazes into the web's reflective surface and extracts what you need — no API key required.*
+*Scryer gazes into the web's reflective surface and extracts what you need — search works without an API key, LLM works with whatever provider you bring.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-A drop-in replacement for the [Exa](https://exa.ai) MCP search server that runs entirely locally — **no API keys required**. Uses DuckDuckGo for web search, `trafilatura` for content extraction, and an optional LLM backend for synthesis and structured data extraction.
+A drop-in replacement for the [Exa](https://exa.ai) MCP search server that runs entirely locally. Uses DuckDuckGo for web search (no API key needed), `trafilatura` for content extraction, and an optional LLM backend for synthesis and structured data extraction (bring your own endpoint and key).
 
 ```
                     ┌─────────────────────────────────────┐
@@ -25,13 +25,15 @@ A drop-in replacement for the [Exa](https://exa.ai) MCP search server that runs 
 
 ## Features
 
-- **Zero API keys** — Web search and content extraction work unconditionally
-- **5 quality tiers** — From instant snippets to deep multi-pass research
+- **No API key for search** — DuckDuckGo requires no authentication; search works out of the box
+- **Optional LLM endpoint** — Plug in any OpenAI-compatible API for synthesis and extraction (API key supported but not required)
+- **Citation validation** — LLM-generated citations cross-checked against source URLs; hallucinated citations detected and filtered
+- **Schema-validated extraction** — LLM structured output validated against the caller's JSON Schema; bad output rejected with clear error
+- **5 quality tiers** — From instant snippets to deep multi-pass research with chain-of-thought and adversarial verification
 - **5 MCP tools** — Search, fetch, extract, synthesize, health check
-- **Optional LLM synthesis** — Plug in any OpenAI-compatible endpoint for grounded answers and structured extraction
 - **Graceful degradation** — Every tool handles failure cleanly; LLM-dependent features return errors without crashing
 - **Content extraction** — `trafilatura` + `BeautifulSoup` fallback, boilerplate removed
-- **Caching** — Filesystem cache with configurable TTLs (search: 1h, fetch: 24h)
+- **Caching** — Filesystem cache with configurable TTLs (search: 1h, fetch: 24h), pruned on startup
 - **Docker-ready** — Build an image for the Docker MCP toolkit or run directly as stdio
 
 ---
@@ -166,8 +168,8 @@ All configuration is through environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_ENDPOINT` | `http://localhost:8734/v1/chat/completions` | OpenAI-compatible API endpoint for synthesis/extraction. **Optional.** |
-| `SCRYER_LLM_MODEL` | `deepseek-v4-flash` | Model name sent in LLM API requests |
+| `LLM_ENDPOINT` | `http://localhost:8734/v1/chat/completions` | OpenAI-compatible API endpoint for synthesis/extraction. **Optional.** Set to your provider's URL (OpenAI, Anthropic, local proxy, etc.). |
+| `SCRYER_LLM_MODEL` | `deepseek-v4-flash` | Model name sent in LLM API requests. Set to any model your endpoint supports. |
 | `SCRYER_CACHE_DIR` | `~/.cache/scryer-mcp` | Filesystem cache location |
 
 **When `LLM_ENDPOINT` is unset or unreachable:**
@@ -185,11 +187,16 @@ All configuration is through environment variables:
 ### Claude Code
 
 ```bash
-claude mcp add scryer -e LLM_ENDPOINT=http://localhost:8734/v1/chat/completions \
+# Replace ENDPOINT/MODEL with your provider's values (omit both for search-only)
+claude mcp add scryer \
+  -e LLM_ENDPOINT=http://localhost:8734/v1/chat/completions \
+  -e SCRYER_LLM_MODEL=deepseek-v4-flash \
   -- python -m scryer_mcp.server
 ```
 
 ### Cursor / Any MCP Client
+
+*Replace ENDPOINT and MODEL with your provider's values. Both env vars are optional — omit for search-only.*
 
 ```json
 {
@@ -227,10 +234,13 @@ FROM python:3.12-slim
 # Build
 docker build -t scryer-mcp .
 
-# Run (stdio)
-docker run --rm -e LLM_ENDPOINT=http://host:8734/v1/chat/completions scryer-mcp
+# Run with an LLM endpoint (replace ENDPOINT and MODEL with your provider)
+docker run --rm \
+  -e LLM_ENDPOINT=http://host.docker.internal:8734/v1/chat/completions \
+  -e SCRYER_LLM_MODEL=deepseek-v4-flash \
+  scryer-mcp
 
-# Run with no LLM (search + fetch only)
+# Run with no LLM (search + fetch only — works out of the box)
 docker run --rm scryer-mcp
 ```
 
@@ -259,7 +269,11 @@ src/scryer_mcp/
 
 **Graceful degradation.** Every tool has a fallback chain. If all fetches fail at `fast` tier, it downgrades to `instant`. If the LLM is down, synthesis returns an error but search results are still delivered.
 
-**No API keys.** DuckDuckGo requires no authentication. The LLM endpoint is optional and user-configured.
+**Search requires no API key.** DuckDuckGo web search works out of the box — no registration, no token. The optional LLM endpoint supports Bearer token auth via `SCRYER_API_KEY` for providers that require it, or no auth for local proxies.
+
+**Citation validation.** When the LLM generates citations, they are cross-checked against the actual search results. Hallucinated or invented URLs are filtered out, and the count of hallucinated citations is surfaced in the response. This prevents the LLM from fabricating sources.
+
+**Schema-validated extraction.** Structured data extraction validates the LLM's output against the caller's JSON Schema. If the LLM returns data that doesn't match (wrong types, missing fields, extra keys), the extraction returns an error rather than silently passing corrupt data to the caller.
 
 **Jittered retry on 429s.** DuckDuckGo rate-limits aggressively. The search adapter uses exponential backoff with jitter to handle this transparently.
 
@@ -298,10 +312,12 @@ scryer-mcp/
 
 ## Security
 
-- **No secrets in the image.** The Docker image contains no API keys, tokens, passwords, or credentials.
-- **No hardcoded endpoints.** The LLM endpoint is configured at runtime via `LLM_ENDPOINT`. Default (`localhost:8734`) only applies when explicitly set.
-- **No data leakage.** Outbound HTTP requests go to DuckDuckGo and optionally your LLM endpoint. No telemetry, tracking, or analytics.
+- **No secrets in the image.** The Docker image contains no API keys, tokens, passwords, or credentials. `SCRYER_API_KEY` is injected at runtime via env var or Docker secrets.
+- **Endpoint-agnostic.** LLM endpoint is configured at runtime via `LLM_ENDPOINT`. Set it to any OpenAI-compatible API — OpenAI, Anthropic, a local proxy, or skip it entirely for search-only operation.
+- **API key transport warning.** When `SCRYER_API_KEY` is set and the endpoint uses HTTP to a non-local address, Scryer emits a runtime warning. Localhost HTTP (the default) is safe — traffic never leaves the machine.
+- **No data leakage.** Outbound HTTP requests go only to DuckDuckGo and optionally your LLM endpoint. No telemetry, tracking, or analytics.
 - **Cache is local.** All cached data stays in `SCRYER_CACHE_DIR`. Nothing is sent anywhere.
+- **Tracebacks not exposed.** Internal error details are never returned to the MCP client; only `str(e)` error messages are surfaced.
 
 ---
 
