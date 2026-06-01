@@ -18,8 +18,9 @@ WORKDIR /app
 RUN pip install -e . --no-deps
 
 ENV LLM_ENDPOINT="https://api.deepseek.com/v1/chat/completions"
-ENV SCRYER_LLM_MODEL="deepseek-chat"
+ENV SCRYER_LLM_MODEL="claude-3-5-haiku-latest"
 ENV SCRYER_API_KEY=""
+ENV SCRYER_ANTHROPIC_API_KEY=""
 ENV SCRYER_CACHE_DIR="/root/.cache/scryer-mcp"
 
 ENTRYPOINT ["python", "-m", "scryer_mcp.server"]

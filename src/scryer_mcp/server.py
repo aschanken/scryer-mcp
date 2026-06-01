@@ -212,16 +212,23 @@ async def scryer_health() -> dict:
         status["checks"]["http_fetch"] = {"ok": False, "detail": str(e)}
         status["all_ok"] = False
 
-    # LLM endpoint (optional — doesn't set all_ok=False)
-    llm_ok = await llm_client.is_available()
-    detail = "reachable" if llm_ok else "unavailable (synthesis/extraction disabled)"
-    if llm_client.api_key:
-        detail += " [auth: DeepSeek API key configured]"
-    status["checks"]["llm_endpoint"] = {
-        "ok": llm_ok,
-        "detail": detail,
-        "api_key_configured": bool(llm_client.api_key),
+    # LLM backends (optional — neither set all_ok=False)
+    backend_status = await llm_client.check_all_backends()
+    status["checks"]["llm_backends"] = backend_status
+
+    # Convenience: primary backend summary
+    primary = llm_client._primary_backend
+    primary_ok = backend_status[primary]["ok"]
+    status["checks"]["llm_primary"] = {
+        "backend": primary,
+        "model": llm_client.model,
+        "ok": primary_ok,
+        "detail": "reachable" if primary_ok else f"unavailable ({primary} not reachable)",
     }
+    if llm_client._last_backend_used and llm_client._last_backend_used != primary:
+        status["checks"]["llm_primary"]["detail"] += (
+            f" [last request used: {llm_client._last_backend_used}]"
+        )
 
     # Cache directory
     try:

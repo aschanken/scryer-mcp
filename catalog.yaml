@@ -30,15 +30,19 @@ registry:
     secrets:
       - name: SCRYER_API_KEY
         env: SCRYER_API_KEY
-        description: DeepSeek API key for LLM synthesis and extraction
+        description: DeepSeek API key for LLM synthesis and extraction (OpenAI-compatible fallback)
+        required: false
+      - name: SCRYER_ANTHROPIC_API_KEY
+        env: SCRYER_ANTHROPIC_API_KEY
+        description: Anthropic API key for LLM synthesis and extraction (primary)
         required: false
     env:
       - name: LLM_ENDPOINT
         value: "https://api.deepseek.com/v1/chat/completions"
-        description: DeepSeek API endpoint for synthesis/extraction
+        description: OpenAI-compatible API endpoint (used for deepseek models or fallback)
       - name: SCRYER_LLM_MODEL
-        value: "deepseek-chat"
-        description: DeepSeek model name
+        value: "claude-3-5-haiku-latest"
+        description: LLM model name. Prefix 'claude'=Anthropic, 'deepseek'=DeepSeek
       - name: SCRYER_CACHE_DIR
         value: "/root/.cache/scryer-mcp"
         description: Cache directory for search/fetch results
