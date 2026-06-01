@@ -24,26 +24,24 @@ registry:
     title: Scryer
     type: server
     dateAdded: "2026-05-29T22:00:00Z"
-    image: scryer:latest
+    image: aschanken/scryer-mcp:latest
     ref: ""
     readme: https://github.com/local/scryer-mcp/blob/main/README.md
     secrets:
       - name: SCRYER_API_KEY
-        description: API key for LLM provider (optional, passed as Bearer token)
+        env: SCRYER_API_KEY
+        description: DeepSeek API key for LLM synthesis and extraction
         required: false
     env:
       - name: LLM_ENDPOINT
-        value: "http://localhost:8734/v1/chat/completions"
-        description: LLM API endpoint for synthesis/extraction (optional)
+        value: "https://api.deepseek.com/v1/chat/completions"
+        description: DeepSeek API endpoint for synthesis/extraction
       - name: SCRYER_LLM_MODEL
-        value: "deepseek-v4-flash"
-        description: Model name for LLM calls
+        value: "deepseek-chat"
+        description: DeepSeek model name
       - name: SCRYER_CACHE_DIR
         value: "/root/.cache/scryer-mcp"
         description: Cache directory for search/fetch results
-      - name: SCRYER_API_KEY
-        value: ""
-        description: API key for LLM provider (optional, passed as Bearer token)
     tools:
       - name: scryer_search
         description: Search the web using DuckDuckGo with quality tiers

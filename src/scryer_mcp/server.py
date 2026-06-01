@@ -216,7 +216,7 @@ async def scryer_health() -> dict:
     llm_ok = await llm_client.is_available()
     detail = "reachable" if llm_ok else "unavailable (synthesis/extraction disabled)"
     if llm_client.api_key:
-        detail += " [auth: Bearer token configured]"
+        detail += " [auth: DeepSeek API key configured]"
     status["checks"]["llm_endpoint"] = {
         "ok": llm_ok,
         "detail": detail,

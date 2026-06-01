@@ -3,7 +3,7 @@ FROM python:3.12-slim
 
 RUN pip install --no-cache-dir \
     mcp \
-    ddgs \
+    duckduckgo-search \
     httpx \
     trafilatura \
     beautifulsoup4 \
@@ -17,8 +17,8 @@ COPY pyproject.toml /app/
 WORKDIR /app
 RUN pip install -e . --no-deps
 
-ENV LLM_ENDPOINT=""
-ENV SCRYER_LLM_MODEL="deepseek-v4-flash"
+ENV LLM_ENDPOINT="https://api.deepseek.com/v1/chat/completions"
+ENV SCRYER_LLM_MODEL="deepseek-chat"
 ENV SCRYER_API_KEY=""
 ENV SCRYER_CACHE_DIR="/root/.cache/scryer-mcp"
 

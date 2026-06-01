@@ -11,26 +11,17 @@ import warnings
 class LLMClient:
     """Async client for LLM-dependent features.
 
-    Points at the token proxy by default. Degrades gracefully:
+    Calls the DeepSeek API directly. Degrades gracefully:
     if unavailable, synthesis/extraction tools return an error message.
     """
 
     def __init__(self, endpoint: str | None = None, model: str | None = None,
                  api_key: str | None = None):
-        self.endpoint = endpoint or os.getenv("LLM_ENDPOINT") or "http://localhost:8734/v1/chat/completions"
-        self.model = model or os.getenv("SCRYER_LLM_MODEL", "deepseek-v4-flash")
+        self.endpoint = endpoint or os.getenv("LLM_ENDPOINT") or "https://api.deepseek.com/v1/chat/completions"
+        self.model = model or os.getenv("SCRYER_LLM_MODEL", "deepseek-chat")
         self.api_key = api_key or os.getenv("SCRYER_API_KEY")
         self._client: httpx.AsyncClient | None = None
         self._client_lock: asyncio.Lock | None = None
-        if self.api_key:
-            parsed = httpx.URL(self.endpoint)
-            is_local = parsed.host in ("localhost", "127.0.0.1", "0.0.0.0")
-            if parsed.scheme == "http" and not is_local:
-                warnings.warn(
-                    f"API key will be transmitted in cleartext to {parsed.host} "
-                    f"via HTTP. Use HTTPS in production.",
-                    stacklevel=2,
-                )
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -45,12 +36,15 @@ class LLMClient:
         return self._client
 
     async def is_available(self) -> bool:
-        """Check if the LLM endpoint is reachable."""
+        """Check if the DeepSeek API is reachable."""
+        if not self.api_key:
+            return False
         try:
             client = await self._get_client()
-            health_url = self.endpoint.rsplit("/", 1)[0] + "/health"
-            resp = await client.get(health_url, timeout=3.0)
-            return resp.status_code == 200
+            base_url = self.endpoint.rsplit("/", 1)[0]
+            resp = await client.get(base_url + "/models", timeout=5.0)
+            # 200 = ok, 401 = reachable but key invalid
+            return resp.status_code in (200, 401)
         except Exception:
             return False
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import random
 import warnings
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 
 def _augment_query(query: str, category: str | None) -> str:
