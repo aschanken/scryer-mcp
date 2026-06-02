@@ -30,7 +30,7 @@ class LLMClient:
     """
 
     FALLBACK_ANTHROPIC_MODEL = "claude-3-5-haiku-latest"
-    FALLBACK_OPENAI_MODEL = "deepseek-v4-flash"
+    FALLBACK_OPENAI_MODEL = "deepseek-chat"
     ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
 
     def __init__(
@@ -54,7 +54,7 @@ class LLMClient:
         )
 
         # Model + backend detection
-        self.model = model or os.getenv("SCRYER_LLM_MODEL", "claude-3-5-haiku-latest")
+        self.model = model or os.getenv("SCRYER_LLM_MODEL", "deepseek-v4-flash")
         self._primary_backend = self._detect_backend(self.model)
         self._last_backend_used: str | None = None
 

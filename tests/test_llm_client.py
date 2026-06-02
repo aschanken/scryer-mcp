@@ -123,11 +123,11 @@ class TestLLMClientBackendDetection:
         client = LLMClient(model="some-unknown-model")
         assert client._primary_backend == "anthropic"
 
-    def test_default_model_is_claude_haiku(self, monkeypatch):
+    def test_default_model_is_deepseek_v4_flash(self, monkeypatch):
         monkeypatch.delenv("SCRYER_LLM_MODEL", raising=False)
         client = LLMClient()
-        assert client.model == "claude-3-5-haiku-latest"
-        assert client._primary_backend == "anthropic"
+        assert client.model == "deepseek-v4-flash"
+        assert client._primary_backend == "openai"
 
 
 class TestLLMClientDualBackend:
@@ -181,7 +181,7 @@ class TestLLMClientDualBackend:
         async def mock_chat_openai(self_inst, sys, usr, temp, mt, model):
             nonlocal call_count
             call_count += 1
-            assert model == "deepseek-v4-flash"  # fallback model
+            assert model == "deepseek-chat"  # fallback model
             return "fallback response"
 
         monkeypatch.setattr(LLMClient, "_chat_openai", mock_chat_openai)

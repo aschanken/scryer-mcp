@@ -41,7 +41,7 @@ registry:
         value: "https://api.deepseek.com/v1/chat/completions"
         description: OpenAI-compatible API endpoint (used for deepseek models or fallback)
       - name: SCRYER_LLM_MODEL
-        value: "claude-3-5-haiku-latest"
+        value: "deepseek-v4-flash"
         description: LLM model name. Prefix 'claude'=Anthropic, 'deepseek'=DeepSeek
       - name: SCRYER_CACHE_DIR
         value: "/root/.cache/scryer-mcp"
