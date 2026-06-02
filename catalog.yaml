@@ -28,8 +28,8 @@ registry:
     ref: ""
     readme: https://github.com/local/scryer-mcp/blob/main/README.md
     secrets:
-      - name: SCRYER_API_KEY
-        env: SCRYER_API_KEY
+      - name: SCRYER_DEEPSEEK_API_KEY
+        env: SCRYER_DEEPSEEK_API_KEY
         description: DeepSeek API key for LLM synthesis and extraction (OpenAI-compatible fallback)
         required: false
       - name: SCRYER_ANTHROPIC_API_KEY

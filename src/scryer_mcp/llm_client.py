@@ -46,7 +46,7 @@ class LLMClient:
             or os.getenv("LLM_ENDPOINT")
             or "https://api.deepseek.com/v1/chat/completions"
         )
-        self.openai_api_key = api_key or os.getenv("SCRYER_API_KEY")
+        self.openai_api_key = api_key or os.getenv("SCRYER_DEEPSEEK_API_KEY")
 
         # Anthropic config
         self.anthropic_api_key = anthropic_api_key or os.getenv(
@@ -163,7 +163,7 @@ class LLMClient:
             except Exception as e:
                 result["openai"]["detail"] = str(e)
         else:
-            result["openai"]["detail"] = "SCRYER_API_KEY not set"
+            result["openai"]["detail"] = "SCRYER_DEEPSEEK_API_KEY not set"
 
         return result
 
@@ -301,7 +301,7 @@ class LLMClient:
             return {
                 "error": (
                     "LLM unavailable — configure SCRYER_ANTHROPIC_API_KEY "
-                    "(Anthropic) or SCRYER_API_KEY (DeepSeek) and ensure "
+                    "(Anthropic) or SCRYER_DEEPSEEK_API_KEY (DeepSeek) and ensure "
                     "the endpoint is reachable"
                 )
             }

@@ -43,7 +43,7 @@ class TestLLMClient:
     @pytest.fixture(autouse=True)
     def _clear_keys(self, monkeypatch):
         """Ensure both API keys are unset."""
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("SCRYER_ANTHROPIC_API_KEY", raising=False)
 
     @pytest.mark.asyncio
@@ -71,24 +71,24 @@ class TestLLMClientAuth:
         assert client.openai_api_key == "sk-test-key"
 
     def test_api_key_from_env(self, monkeypatch):
-        monkeypatch.setenv("SCRYER_API_KEY", "sk-env-key")
+        monkeypatch.setenv("SCRYER_DEEPSEEK_API_KEY", "sk-env-key")
         client = LLMClient()
         assert client.openai_api_key == "sk-env-key"
 
     def test_api_key_none_when_unset(self, monkeypatch):
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         client = LLMClient()
         assert client.openai_api_key is None
 
     def test_kwarg_overrides_env(self, monkeypatch):
-        monkeypatch.setenv("SCRYER_API_KEY", "sk-env-key")
+        monkeypatch.setenv("SCRYER_DEEPSEEK_API_KEY", "sk-env-key")
         client = LLMClient(api_key="sk-explicit")
         assert client.openai_api_key == "sk-explicit"
 
     @pytest.mark.asyncio
     async def test_get_client_no_auth_header_by_default(self, monkeypatch):
         """Shared client no longer carries auth headers — added per-request."""
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("SCRYER_ANTHROPIC_API_KEY", raising=False)
         client = LLMClient()
         c = await client._get_client()
@@ -135,7 +135,7 @@ class TestLLMClientDualBackend:
 
     @pytest.fixture(autouse=True)
     def _clear_keys(self, monkeypatch):
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("SCRYER_ANTHROPIC_API_KEY", raising=False)
 
     def test_anthropic_api_key_from_env(self, monkeypatch):
@@ -148,7 +148,7 @@ class TestLLMClientDualBackend:
         assert client.anthropic_api_key == "sk-ant-kwarg"
 
     def test_both_keys_independent(self, monkeypatch):
-        monkeypatch.setenv("SCRYER_API_KEY", "sk-ds")
+        monkeypatch.setenv("SCRYER_DEEPSEEK_API_KEY", "sk-ds")
         monkeypatch.setenv("SCRYER_ANTHROPIC_API_KEY", "sk-ant")
         client = LLMClient()
         assert client.openai_api_key == "sk-ds"
@@ -173,7 +173,7 @@ class TestLLMClientDualBackend:
     @pytest.mark.asyncio
     async def test_fallback_when_primary_unavailable(self, monkeypatch):
         """When primary (Anthropic) has no key, fall back to OpenAI."""
-        monkeypatch.setenv("SCRYER_API_KEY", "sk-ds")
+        monkeypatch.setenv("SCRYER_DEEPSEEK_API_KEY", "sk-ds")
         client = LLMClient(model="claude-3-5-haiku-latest")
 
         call_count = 0
@@ -216,7 +216,7 @@ class TestLLMClientDualBackend:
 
     @pytest.mark.asyncio
     async def test_check_all_backends_reports_both(self, monkeypatch):
-        monkeypatch.setenv("SCRYER_API_KEY", "sk-ds")
+        monkeypatch.setenv("SCRYER_DEEPSEEK_API_KEY", "sk-ds")
         monkeypatch.setenv("SCRYER_ANTHROPIC_API_KEY", "sk-ant")
         client = LLMClient()
 
@@ -373,7 +373,7 @@ class TestLLMClientCleartextWarning:
     def test_warning_on_http_non_localhost(self, monkeypatch):
         import warnings
 
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             LLMClient(
@@ -385,7 +385,7 @@ class TestLLMClientCleartextWarning:
     def test_no_warning_on_https(self, monkeypatch):
         import warnings
 
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             LLMClient(
@@ -397,7 +397,7 @@ class TestLLMClientCleartextWarning:
     def test_no_warning_on_localhost_http(self, monkeypatch):
         import warnings
 
-        monkeypatch.delenv("SCRYER_API_KEY", raising=False)
+        monkeypatch.delenv("SCRYER_DEEPSEEK_API_KEY", raising=False)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             LLMClient(
