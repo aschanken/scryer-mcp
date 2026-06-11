@@ -35,6 +35,18 @@ class Category(str, Enum):
 
 # ---- Response Models ----
 
+class StructuredItem(BaseModel):
+    """A single discovered structured content object from a web page.
+
+    Automatically extracted from HTML during fetch — no prior knowledge required.
+    """
+    type: str = Field(..., description="One of: json_ld, open_graph, microdata, table")
+    name: Optional[str] = Field(default=None, description="Human-readable label for the item")
+    data: dict | list | str | int | float | bool | None = Field(
+        default=None, description="The extracted structured data"
+    )
+
+
 class SearchResult(BaseModel):
     """A single search result."""
     title: str
@@ -46,6 +58,10 @@ class SearchResult(BaseModel):
     full_text: Optional[str] = None               # Present if full_text=True
     score: float = Field(default=1.0, ge=0.0, le=1.0)
     category: Optional[Category] = None
+    structured_items: list[StructuredItem] = Field(
+        default_factory=list,
+        description="Automatically-discovered structured content (JSON-LD, OG, microdata, tables)",
+    )
 
 
 class StructuredData(BaseModel):
@@ -93,6 +109,12 @@ class ScryerRequest(BaseModel):
     livecrawl: bool = True                        # False = snippets only
     structured_output_schema: Optional[dict] = None  # JSON Schema for extraction
     max_tokens: Optional[int] = None              # Soft cap on output
+    prompt: Optional[str] = Field(
+        default=None,
+        description="Instructional prompt passed to the LLM when synthesizing, "
+                    "extracting, or processing content. Additive — does not "
+                    "replace built-in instructions.",
+    )
 
     @field_validator("num_results")
     @classmethod

@@ -34,6 +34,7 @@ async def scryer_search(
     livecrawl: bool = True,
     tier: str = "auto",
     max_tokens: int | None = None,
+    prompt: str | None = None,
 ) -> dict:
     """Search the web using DuckDuckGo-style web search.
 
@@ -49,6 +50,9 @@ async def scryer_search(
         livecrawl: Fetch fresh content; false = snippets only (default true).
         tier: Quality tier — instant, fast, auto, deep, deep-reasoning (default auto).
         max_tokens: Soft cap on total output tokens.
+        prompt: Optional instructional prompt passed to the LLM when
+                synthesizing, extracting, or processing content. Additive
+                — does not replace built-in instructions.
     """
     try:
         cat = Category(category) if category else None
@@ -65,7 +69,7 @@ async def scryer_search(
     request = ScryerRequest(
         query=query, tier=t, num_results=num_results,
         category=cat, highlights=highlights, full_text=full_text,
-        livecrawl=livecrawl, max_tokens=max_tokens,
+        livecrawl=livecrawl, max_tokens=max_tokens, prompt=prompt,
     )
     try:
         response = await execute_tier(request)
@@ -84,6 +88,8 @@ async def scryer_fetch_content(
 
     Uses trafilatura for content extraction with BeautifulSoup fallback.
     Returns clean markdown or highlights — no raw HTML.
+    Automatically discovers structured content (JSON-LD, Open Graph,
+    microdata, tables) and surfaces it alongside the extracted text.
 
     Args:
         urls: URLs to fetch (max 15).
@@ -114,7 +120,8 @@ async def scryer_fetch_content(
 async def scryer_extract_structured(
     urls: list[str],
     schema: dict,
-    mode: str = "highlights",
+    mode: str = "full_text",
+    prompt: str | None = None,
 ) -> dict:
     """Extract structured data from URLs according to a JSON Schema.
 
@@ -125,7 +132,9 @@ async def scryer_extract_structured(
         urls: URLs to extract data from (max 10).
         schema: JSON Schema defining the extraction shape.
                Example: {"type": "object", "properties": {"name": {"type": "string"}}}
-        mode: "highlights" or "full_text" for content extraction.
+        mode: "highlights" or "full_text" for content extraction (default full_text).
+        prompt: Optional instructional prompt appended to the LLM extraction
+                prompt. Additive — does not replace built-in instructions.
     """
     err = validate_extraction_schema(schema)
     if err:
@@ -141,9 +150,9 @@ async def scryer_extract_structured(
         if r.get("error") or not r.get("content"):
             continue
         # Retry once on failure
-        extracted = await llm_client.extract_structured(r["content"], schema)
+        extracted = await llm_client.extract_structured(r["content"], schema, prompt=prompt)
         if "error" in extracted:
-            extracted = await llm_client.extract_structured(r["content"], schema)
+            extracted = await llm_client.extract_structured(r["content"], schema, prompt=prompt)
         if "error" in extracted:
             errors += 1
         else:
@@ -168,6 +177,7 @@ async def scryer_extract_structured(
 async def scryer_synthesize(
     query: str,
     results: list[dict],
+    prompt: str | None = None,
 ) -> dict:
     """Synthesize a grounded, cited answer from search results.
 
@@ -177,8 +187,10 @@ async def scryer_synthesize(
     Args:
         query: The original search query.
         results: List of dicts with title, url, and highlights/snippet fields.
+        prompt: Optional instructional prompt appended to the LLM synthesis
+                prompt. Additive — does not replace built-in instructions.
     """
-    return await llm_client.synthesize(query, results)
+    return await llm_client.synthesize(query, results, prompt=prompt)
 
 
 @mcp.tool()

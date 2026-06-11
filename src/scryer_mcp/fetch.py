@@ -6,6 +6,7 @@ import re
 import httpx
 from trafilatura import extract as trafilatura_extract
 from bs4 import BeautifulSoup
+from .extract import discover_structured_content
 
 
 async def fetch_url(
@@ -53,12 +54,29 @@ async def fetch_url(
                 "status": 200, "error": "No extractable content",
             }
 
+        # Track original word count for truncation metadata
+        original_word_count = len(content.split()) if content else 0
+
         if mode == "highlights":
             content = _truncate_words(content, 200)
+        elif mode == "full_text":
+            content = _truncate_words(content, 2000)
+
+        content_truncated = False
+        if mode == "highlights":
+            content_truncated = bool(content) and original_word_count > 200
+        elif mode == "full_text":
+            content_truncated = bool(content) and original_word_count > 2000
+
+        # Automatically discover structured content (JSON-LD, OG, microdata, tables)
+        structured_items = discover_structured_content(html)
 
         return {
             "url": url, "title": title, "content": content,
             "status": 200, "error": None,
+            "structured_items": structured_items,
+            "content_truncated": content_truncated,
+            "content_length": len(content) if content else 0,
         }
 
     except httpx.TimeoutException:
@@ -146,7 +164,34 @@ async def fetch_urls(
 
 
 def _truncate_words(text: str, max_words: int) -> str:
+    """Truncate *text* to approximately *max_words*, breaking at sentence end.
+
+    Never cuts mid-sentence — walks backward from the cutoff to find the last
+    sentence boundary (``. ``, ``! ``, ``? `` or newline).  Falls back to a hard
+    word cut (no ellipsis) if no boundary is found within 20 words.
+
+    Args:
+        text: The text to truncate.
+        max_words: Maximum number of words to allow.
+
+    Returns:
+        Truncated text ending at a sentence boundary, or a hard word cut
+        if no boundary is found.
+    """
     words = text.split()
     if len(words) <= max_words:
         return text
-    return " ".join(words[:max_words]) + "…"
+
+    # Build candidate text at exactly max_words
+    candidate = " ".join(words[:max_words])
+
+    # Walk backward to find the last sentence boundary (max 200 chars back)
+    search_start = max(0, len(candidate) - 200)
+    for i in range(len(candidate) - 1, search_start - 1, -1):
+        if candidate[i] in (".", "!", "?") and (
+            i + 1 >= len(candidate) or candidate[i + 1] in (" ", "\n")
+        ):
+            return candidate[: i + 1]
+
+    # No sentence boundary found — hard cut at the nearest word boundary
+    return " ".join(words[:max_words])

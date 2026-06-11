@@ -52,6 +52,7 @@ def _to_search_result(raw: dict, fetched: dict | None = None) -> SearchResult:
         url=raw.get("url", ""),
         snippet=raw.get("snippet", ""),
         highlights=fetched.get("content") if fetched else None,
+        structured_items=fetched.get("structured_items", []) if fetched else [],
     )
 
 
@@ -98,6 +99,7 @@ async def _fast(req: ScryerRequest) -> ScryerResponse:
                     url=data.get("url", ""),
                     snippet=r.get("snippet", ""),
                     highlights=data.get("content"),
+                    structured_items=data.get("structured_items", []),
                 ))
                 trace.urls_skipped_cache += 1
             elif req.livecrawl:
@@ -146,7 +148,7 @@ async def _auto(req: ScryerRequest) -> ScryerResponse:
         {"title": r.title, "url": r.url, "snippet": r.snippet, "highlights": r.highlights}
         for r in fast_resp.results
     ]
-    synthesis = await llm_client.synthesize(req.query, result_dicts)
+    synthesis = await llm_client.synthesize(req.query, result_dicts, prompt=req.prompt)
 
     if "error" in synthesis:
         fast_resp.trace.tier = "auto"
@@ -170,7 +172,7 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
     # Second pass: gap-filling search
     gaps = []
     if auto_resp.grounded_answer:
-        gaps = await _identify_gaps(req.query, auto_resp)
+        gaps = await _identify_gaps(req.query, auto_resp, prompt=req.prompt)
         if gaps:
             for gap_query in gaps[:3]:
                 gap_results = await ddg_search(gap_query, 5)
@@ -196,7 +198,7 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
         {"title": r.title, "url": r.url, "snippet": r.snippet, "highlights": r.highlights}
         for r in auto_resp.results
     ]
-    synthesis = await llm_client.synthesize(req.query, result_dicts)
+    synthesis = await llm_client.synthesize(req.query, result_dicts, prompt=req.prompt)
     if "error" not in synthesis:
         auto_resp.grounded_answer = synthesis.get("grounded_answer")
         auto_resp.citations = synthesis.get("citations", [])
@@ -208,7 +210,11 @@ async def _deep(req: ScryerRequest) -> ScryerResponse:
     return auto_resp
 
 
-async def _identify_gaps(query: str, response: ScryerResponse) -> list[str]:
+async def _identify_gaps(
+    query: str,
+    response: ScryerResponse,
+    prompt: str | None = None,
+) -> list[str]:
     """Identify knowledge gaps for follow-up search queries."""
     if not response.grounded_answer:
         return []
@@ -219,9 +225,11 @@ async def _identify_gaps(query: str, response: ScryerResponse) -> list[str]:
         "gaps or resolve uncertainties in this answer. Return ONLY a JSON "
         'array of query strings: ["query1", "query2"]'
     )
+    system = "You identify knowledge gaps in research."
+    if prompt:
+        system += f"\n\nAdditional instruction from the user:\n{prompt}"
     result = await llm_client._chat(
-        "You identify knowledge gaps in research.",
-        text, temperature=0.3, max_tokens=300,
+        system, text, temperature=0.3, max_tokens=300,
     )
     if not result:
         return []
@@ -242,10 +250,15 @@ async def _deep_reasoning(req: ScryerRequest) -> ScryerResponse:
         return deep_resp
 
     # Chain-of-thought analysis
-    cot = await llm_client._chat(
+    cot_system = (
         "You are a rigorous research analyst. Perform step-by-step reasoning "
         "on research findings. Assess consensus, minority views, recency, "
-        "assumptions, and evidence quality.",
+        "assumptions, and evidence quality."
+    )
+    if req.prompt:
+        cot_system += f"\n\nAdditional instruction from the user:\n{req.prompt}"
+    cot = await llm_client._chat(
+        cot_system,
         f"Query: {req.query}\n\nFindings:\n{deep_resp.grounded_answer}",
         temperature=0.3, max_tokens=1000,
     )
@@ -258,15 +271,18 @@ async def _deep_reasoning(req: ScryerRequest) -> ScryerResponse:
             ("bias", "Check for bias/balance. Does it over-rely on one source type?"),
         ]
 
-        async def verify(lens_name: str, prompt: str) -> dict | None:
+        async def verify(lens_name: str, lens_prompt: str) -> dict | None:
+            sys_msg = f"You are a {lens_name} reviewer."
+            if req.prompt:
+                sys_msg += f"\n\nAdditional instruction from the user:\n{req.prompt}"
             text = await llm_client._chat(
-                f"You are a {lens_name} reviewer.", prompt, temperature=0.2, max_tokens=500
+                sys_msg, lens_prompt, temperature=0.2, max_tokens=500
             )
             return {"lens": lens_name, "verdict": text} if text else None
 
         verdicts = await asyncio.gather(*[
-            verify(name, f"{prompt}\n\nQuery: {req.query}\n\nAnswer:\n{deep_resp.grounded_answer}")
-            for name, prompt in lenses
+            verify(name, f"{lens_text}\n\nQuery: {req.query}\n\nAnswer:\n{deep_resp.grounded_answer}")
+            for name, lens_text in lenses
         ])
         cot_tokens = _estimate_tokens(cot)
         deep_resp.trace.tokens_consumed += cot_tokens + 1500

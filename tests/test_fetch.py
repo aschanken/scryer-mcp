@@ -12,10 +12,29 @@ class TestTruncateWords:
         result = _truncate_words("one two three", 10)
         assert result == "one two three"
 
-    def test_over_limit(self):
+    def test_over_limit_hard_fallback(self):
+        """No sentence boundary found — fall back to hard word cut (no ellipsis)."""
         from scryer_mcp.fetch import _truncate_words
         result = _truncate_words("one two three four five six", 3)
-        assert result == "one two three…"
+        assert result == "one two three"
+        assert not result.endswith("…")
+
+    def test_over_limit_preserves_sentence_boundary(self):
+        """Must break at the nearest sentence boundary when one exists near the cutoff."""
+        from scryer_mcp.fetch import _truncate_words
+        text = "First sentence. Second sentence. Third sentence. Fourth sentence."
+        # max_words=5: "First sentence. Second sentence. Third" — walks back to
+        # the nearest sentence boundary: "First sentence. Second sentence."
+        result = _truncate_words(text, 5)
+        assert result == "First sentence. Second sentence."
+
+    def test_sentence_boundary_exclamation_and_question(self):
+        """Must also recognise ! and ? as sentence boundaries."""
+        from scryer_mcp.fetch import _truncate_words
+        # Words: ["A.", "B!", "C", "D."] — at max_words=3 the cut creates
+        # "A. B! C"; walks back to the "!" boundary.
+        result = _truncate_words("A. B! C D.", 3)
+        assert result == "A. B!"
 
     def test_empty(self):
         from scryer_mcp.fetch import _truncate_words
@@ -42,7 +61,8 @@ class TestFetchUrls:
 
         async def mock_fetch(url, client, mode):
             return {"url": url, "content": "test content", "status": 200,
-                    "error": None, "title": "Test Title"}
+                    "error": None, "title": "Test Title",
+                    "content_truncated": False, "content_length": 12}
         monkeypatch.setattr("scryer_mcp.fetch.fetch_url", mock_fetch)
 
         results = await fetch_urls(["https://example.com/a", "https://example.com/b"])

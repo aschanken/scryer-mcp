@@ -292,10 +292,23 @@ class LLMClient:
     # Synthesis
     # ------------------------------------------------------------------
 
-    async def synthesize(self, query: str, results: list[dict]) -> dict:
+    async def synthesize(
+        self,
+        query: str,
+        results: list[dict],
+        prompt: str | None = None,
+    ) -> dict:
         """Synthesize a grounded, cited answer from search results.
 
-        Returns ``{"grounded_answer": str, "citations": [str]}`` or error dict.
+        Args:
+            query: The original search query.
+            results: Search results to synthesize from.
+            prompt: Optional instructional prompt appended to the system message
+                    to guide the synthesis (additive, does not replace built-in
+                    instructions).
+
+        Returns:
+            ``{"grounded_answer": str, "citations": [str]}`` or error dict.
         """
         if not await self.is_available():
             return {
@@ -316,6 +329,8 @@ class LLMClient:
             "not present in the results. Return ONLY a JSON object: "
             '{"grounded_answer": "...", "citations": ["url1", ...]}'
         )
+        if prompt:
+            system += f"\n\nAdditional instruction from the user:\n{prompt}"
         user = f"Query: {query}\n\nSearch Results:\n{results_json}"
 
         text = await self._chat(system, user, temperature=0.3, max_tokens=2000)
@@ -338,8 +353,16 @@ class LLMClient:
     # Structured extraction
     # ------------------------------------------------------------------
 
-    async def extract_structured(self, content: str, schema: dict) -> dict:
-        """Extract structured data from content per JSON Schema."""
+    async def extract_structured(self, content: str, schema: dict, prompt: str | None = None) -> dict:
+        """Extract structured data from content per JSON Schema.
+
+        Args:
+            content: Raw text content to extract from.
+            schema: JSON Schema defining the extraction shape.
+            prompt: Optional instructional prompt appended to the system message
+                    to guide extraction (additive, does not replace built-in
+                    instructions).
+        """
         if not await self.is_available():
             return {"error": "LLM endpoint unavailable"}
 
@@ -350,10 +373,21 @@ class LLMClient:
             "found, use null. Do NOT hallucinate values. Return ONLY a JSON object "
             "conforming exactly to the schema."
         )
-        truncated = len(content) > 8000
-        user = f"Schema: {schema_json}\n\nContent:\n{content[:8000]}"
+        if prompt:
+            system += f"\n\nAdditional instruction from the user:\n{prompt}"
+        char_cap = 8000
+        truncated = len(content) > char_cap
+        user = f"Schema: {schema_json}\n\nContent:\n{content[:char_cap]}"
         if truncated:
             user += "\n\n[Note: Content was truncated to 8000 characters.]"
+        # If content appears word-truncated upstream, flag it so the LLM
+        # doesn't treat an incomplete final item as authoritative.
+        if content.rstrip().endswith("…"):
+            user += (
+                "\n\n[Note: The source content was word-truncated. "
+                "If the last item appears incomplete, omit it rather than "
+                "including a partial value.]"
+            )
 
         text = await self._chat(system, user, temperature=0.0, max_tokens=2000)
         if not text:
@@ -385,9 +419,15 @@ class LLMClient:
     # ------------------------------------------------------------------
 
     async def classify_category(
-        self, results: list[dict], category: str
+        self, results: list[dict], category: str, prompt: str | None = None
     ) -> list[str]:
-        """Classify search results by category, return matching URLs."""
+        """Classify search results by category, return matching URLs.
+
+        Args:
+            results: Search result dicts with title, url, snippet.
+            category: Target category to match against.
+            prompt: Optional instructional prompt appended to the system message.
+        """
         if not await self.is_available():
             return [r["url"] for r in results]
 
@@ -406,6 +446,8 @@ class LLMClient:
             "Return a JSON array of URLs that match the target category. "
             "Be conservative — if uncertain, exclude it."
         )
+        if prompt:
+            system += f"\n\nAdditional instruction from the user:\n{prompt}"
         text = await self._chat(system, urls_json, temperature=0.0, max_tokens=500)
         try:
             return json.loads(_extract_json(text or "[]"))

@@ -53,6 +53,30 @@ class TestFastTier:
         assert resp.tier_used == "fast"
         assert resp.trace.urls_fetched > 0
 
+    @pytest.mark.asyncio
+    async def test_structured_items_survive_round_trip(self, mock_ddg, monkeypatch):
+        """Structured items discovered in fetch must appear in SearchResult."""
+        from scryer_mcp import tiers
+        structured = [
+            {"type": "json_ld", "name": "Person", "data": {"@type": "Person"}},
+        ]
+        async def mock_fetch(urls, mode, timeout_ms):
+            return [{"url": u, "title": f"Title {u}",
+                     "content": f"Content for {u}.",
+                     "status": 200, "error": None,
+                     "structured_items": structured} for u in urls]
+        monkeypatch.setattr(tiers, "fetch_urls", mock_fetch)
+        monkeypatch.setattr(tiers, "cache_ttl", lambda *a: False)
+
+        req = ScryerRequest(query="test", tier=Tier.FAST, num_results=2, livecrawl=True)
+        resp = await tiers._fast(req)
+        assert resp.trace.urls_fetched > 0
+        for r in resp.results:
+            if r.highlights and r.url.startswith("https://example.com"):
+                assert len(r.structured_items) > 0
+                assert r.structured_items[0].type == "json_ld"
+                assert r.structured_items[0].name == "Person"
+
 
 class TestAutoTier:
     @pytest.mark.asyncio
@@ -92,7 +116,7 @@ class TestDeepTier:
             return '["follow-up query 1"]'
         monkeypatch.setattr(tiers.llm_client, "_chat", mock_chat)
         # Mock LLM synthesize to return valid answer (must be async/awaitable)
-        async def mock_synthesize(q, r):
+        async def mock_synthesize(q, r, prompt=None):
             return {"grounded_answer": "Test answer with [cite: https://x.com]", "citations": ["https://x.com"]}
         monkeypatch.setattr(tiers.llm_client, "synthesize", mock_synthesize)
 
@@ -213,7 +237,7 @@ class TestDeepReasoningTier:
                 return '{"grounded_answer": "Test answer. [cite: https://x.com]", "citations": ["https://x.com"]}'
             return "Some analysis or verdict text."
 
-        async def mock_synthesize(q, r):
+        async def mock_synthesize(q, r, prompt=None):
             return {"grounded_answer": "Test answer [cite: https://x.com]", "citations": ["https://x.com"]}
 
         monkeypatch.setattr(tiers.llm_client, "_chat", mock_chat)

@@ -367,6 +367,104 @@ class TestExtractStructuredValidation:
         assert result["age"] == 30
 
 
+class TestSynthesizePromptInjection:
+    """Tests that instructional prompts are injected into synthesize()."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_appended_to_system_message(self, monkeypatch):
+        async def mock_available(self_inst):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        captured = {}
+
+        async def mock_chat(self_inst, system, user, temperature=0.3, max_tokens=2000):
+            captured["system"] = system
+            captured["user"] = user
+            return '{"grounded_answer": "Test answer.", "citations": []}'
+
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        await client.synthesize(
+            "test query",
+            [{"title": "R", "url": "https://x.com", "snippet": "S"}],
+            prompt="Summarize in French",
+        )
+        assert "Summarize in French" in captured["system"]
+        assert "Additional instruction from the user" in captured["system"]
+
+    @pytest.mark.asyncio
+    async def test_no_prompt_leaves_system_unchanged(self, monkeypatch):
+        async def mock_available(self_inst):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        captured = {}
+
+        async def mock_chat(self_inst, system, user, temperature=0.3, max_tokens=2000):
+            captured["system"] = system
+            return '{"grounded_answer": "Test answer.", "citations": []}'
+
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        await client.synthesize(
+            "test query",
+            [{"title": "R", "url": "https://x.com", "snippet": "S"}],
+        )
+        assert "Additional instruction from the user" not in captured["system"]
+        assert "precise research synthesizer" in captured["system"]
+
+
+class TestExtractStructuredPromptInjection:
+    """Tests that instructional prompts are injected into extract_structured()."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_appended_to_system_message(self, monkeypatch):
+        async def mock_available(self_inst):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        captured = {}
+
+        async def mock_chat(self_inst, system, user, temperature=0.0, max_tokens=2000):
+            captured["system"] = system
+            return '{"name": "Alice", "age": 30}'
+
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        schema = {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}
+        await client.extract_structured(
+            "Content about Alice",
+            schema,
+            prompt="Extract only the name field",
+        )
+        assert "Extract only the name field" in captured["system"]
+        assert "Additional instruction from the user" in captured["system"]
+
+    @pytest.mark.asyncio
+    async def test_no_prompt_leaves_system_unchanged(self, monkeypatch):
+        async def mock_available(self_inst):
+            return True
+        monkeypatch.setattr(LLMClient, "is_available", mock_available)
+
+        captured = {}
+
+        async def mock_chat(self_inst, system, user, temperature=0.0, max_tokens=2000):
+            captured["system"] = system
+            return '{"name": "Alice"}'
+
+        monkeypatch.setattr(LLMClient, "_chat", mock_chat)
+
+        client = LLMClient()
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        await client.extract_structured("Content", schema)
+        assert "Additional instruction from the user" not in captured["system"]
+        assert "precise data extractor" in captured["system"]
+
+
 class TestLLMClientCleartextWarning:
     """Tests for cleartext API key warnings."""
 
